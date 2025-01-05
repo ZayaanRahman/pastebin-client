@@ -127,15 +127,26 @@ class PastebinClient:
     def login(self, username: str, password: str) -> None:
         """
         Login with provided credentials, storing the user session key and user defaults internally.
+        This method provides additional functionality to the base API.
 
         :param username: The Pastebin account username.
         :param password: The Pastebin account password.
         """
         self.default_user_key = self.fetch_user_key(username, password)
-        user_data = self.user_details(self.default_user_key)
+        user_data = self.list_user_details(self.default_user_key)
         self.default_highlighting = user_data.default_highlighting
         self.default_expiration = user_data.default_expiration
         self.default_visibility = user_data.default_visibility
+
+    def logout(self) -> None:
+        """
+        Clear the user key and defaults.
+        This method provides additional functionality to the base API.
+        """
+        self.default_user_key = None
+        self.default_highlighting = None
+        self.default_expiration = None
+        self.default_visibility = None
 
     def create_paste(
         self,
@@ -218,7 +229,7 @@ class PastebinClient:
             raise Exception(
                 f"API error when creating paste. Response was: {response.text}")
 
-        paste_key = full_url.split("/")[-1]
+        key = full_url.split("/")[-1]
 
         # Approximate local calculation of expires_at
         lifespan_to_timedelta = {
@@ -239,7 +250,7 @@ class PastebinClient:
                 tz=timezone.utc) + lifespan_to_timedelta[lifespan]
 
         return PasteDetails(
-            paste_key=paste_key,
+            key=key,
             url=full_url,
             title=name,
             size=len(text),
@@ -250,11 +261,11 @@ class PastebinClient:
             hits=0,
         )
 
-    def delete_paste(self, paste_key: str, user_key: str = None) -> None:
+    def delete_paste(self, key: str, user_key: str = None) -> None:
         """
         Delete a paste by its key.
 
-        :param paste_key: The unique key (ID) of the paste to delete.
+        :param key: The unique key (ID) of the paste to delete.
         :param user_key: The user key to use for the request (defaults to self.default_user_key).
         :raises Exception: If the request fails or Pastebin returns an error.
         """
@@ -264,7 +275,7 @@ class PastebinClient:
         payload = {
             "api_dev_key": self.dev_key,
             "api_user_key": user_key,
-            "api_paste_key": paste_key,
+            "api_paste_key": key,
             "api_option": "delete",
         }
 
@@ -279,14 +290,14 @@ class PastebinClient:
 
     def fetch_paste_raw(
         self,
-        paste_key: str,
+        key: str,
         user_owned: bool = True,
         user_key: str = None
     ) -> str:
         """
         Fetch the raw text of a paste.
 
-        :param paste_key: The unique key (ID) of the paste.
+        :param key: The unique key (ID) of the paste.
         :param user_owned: If True, fetch using the private API endpoint (requires user key).
         :param user_key: The user key to use (defaults to self.default_user_key).
         :return: The text of the paste.
@@ -301,12 +312,12 @@ class PastebinClient:
                 "api_option": "show_paste",
                 "api_dev_key": self.dev_key,
                 "api_user_key": user_key,
-                "api_paste_key": paste_key,
+                "api_paste_key": key,
             }
             response = requests.post(url, data=data)
         else:
             # Public or unlisted can be fetched directly.
-            url = self.api_url_raw + paste_key
+            url = self.api_url_raw + key
             response = requests.get(url)
 
         if response.status_code != 200:
@@ -316,9 +327,30 @@ class PastebinClient:
 
         return response.text
 
-    def user_pastes(self, user_key: str = None, limit: int = 50) -> list:
+    def fetch_paste_details(self, key: str, user_key: str = None) -> "PasteDetails":
         """
-        List all pastes created by the user.
+        Fetch the paste details of a single paste from ther user
+        This method provides additional functionality to the base API.
+        NOTE: This method calls the user_pastes() method
+        and filters the result; it is O(num_user_pastes).
+
+        :param key: The unique key (ID) of the paste.
+        :param user_key: The user key to use (defaults to self.default_user_key).
+        :raises Exception: If the request fails or Pastebin returns an error.
+        """
+
+        user_key = user_key or self.default_user_key
+
+        pastes = self.list_pastes_details(user_key)
+        for paste in pastes:
+            if paste.key == key:
+                return paste
+        raise Exception(
+            f"Failed to fetch paste details: Paste {key} not found")
+
+    def list_pastes_details(self, user_key: str = None, limit: int = 1000) -> list:
+        """
+        List the paste details of all pastes created by the user.
 
         :param user_key: The user key to use (defaults to self.default_user_key).
         :param limit: The max number of pastes to fetch (1-1000).
@@ -351,7 +383,7 @@ class PastebinClient:
 
         paste_list = []
         for paste_elem in root.findall("paste"):
-            paste_key = paste_elem.find("paste_key").text
+            key = paste_elem.find("paste_key").text
             created_ts = int(paste_elem.find("paste_date").text)
             created_at = datetime.fromtimestamp(created_ts, tz=timezone.utc)
 
@@ -376,7 +408,7 @@ class PastebinClient:
             hits = int(paste_elem.find("paste_hits").text)
 
             paste_data = PasteDetails(
-                paste_key=paste_key,
+                key=key,
                 url=url_,
                 title=title,
                 size=size,
@@ -390,7 +422,26 @@ class PastebinClient:
 
         return paste_list
 
-    def user_details(self, user_key: str = None) -> "UserDetails":
+    def list_pastes_raw(self, user_key: str = None, limit: int = 1000) -> list:
+        """
+        List the raw paste text of all pastes created by the user.
+
+        :param user_key: The user key to use (defaults to self.default_user_key).
+        :param limit: The max number of pastes to fetch (1-1000).
+        :return: A list of strings representing the raw pastes
+        :raises Exception: If the request fails or Pastebin returns an error.
+        """
+        raw_pastes = []
+
+        paste_details = self.list_pastes_details(user_key, limit)
+        for paste in paste_details:
+            paste.text = self.fetch_paste_raw(
+                key=paste.key, user_key=user_key)
+            raw_pastes.append(paste.text)
+
+        return raw_pastes
+
+    def list_user_details(self, user_key: str = None) -> "UserDetails":
         """
         Fetch details about the user.
 

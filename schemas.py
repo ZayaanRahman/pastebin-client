@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 # data schemas for Pastebin API responses
 
@@ -10,7 +11,7 @@ class PasteDetails:
 
     def __init__(
         self,
-        paste_key: str,
+        key: str,
         url: str,
         title: str,
         size: int,
@@ -20,7 +21,7 @@ class PasteDetails:
         highlighting: str,
         hits: int,
     ):
-        self.paste_key = paste_key
+        self.key = key
         self.url = url
         self.name = title
         self.size = size
@@ -30,8 +31,24 @@ class PasteDetails:
         self.highlighting = highlighting  # e.g. 'python'
         self.hits = hits
 
+    def to_dict(self):
+        """
+        Convert the PasteDetails object to a dictionary.
+        """
+        return {
+            "key": self.key,
+            "url": self.url,
+            "title": self.name,
+            "size": self.size,
+            "created_at": self.created_at.isoformat(),
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "visibility": self.visibility,
+            "highlighting": self.highlighting,
+            "hits": self.hits,
+        }
+
     def __str__(self):
-        return f"<PasteDetails: {self.name or 'Untitled'} at {self.url}>"
+        return json.dumps(self.to_dict(), indent=4)
 
 
 class UserDetails:
@@ -62,5 +79,21 @@ class UserDetails:
         self.location = location
         self.account_type = account_type                  # 'normal' or 'pro'
 
+    def to_dict(self):
+        """
+        Convert the UserDetails object to a dictionary.
+        """
+        return {
+            "username": self.username,
+            "avatar_url": self.avatar_url,
+            "default_highlighting": self.default_highlighting,
+            "default_expiration": self.default_expiration,
+            "default_visibility": self.default_visibility,
+            "website": self.website,
+            "email": self.email,
+            "location": self.location,
+            "account_type": self.account_type,
+        }
+
     def __str__(self):
-        return f"<UserDetails: {self.username}>"
+        return json.dumps(self.to_dict(), indent=4)
